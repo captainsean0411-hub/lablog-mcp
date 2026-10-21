@@ -1,5 +1,6 @@
 """数据模型定义 (Pydantic Models)."""
 
+from typing import Optional
 from pydantic import BaseModel, Field
 
 
@@ -20,3 +21,4 @@ class TimelineResponse(BaseModel):
 
     total: int = Field(..., description="扫描到的实验总数")
     entries: list[ExperimentEntry] = Field(default_factory=list, description="实验条目列表")
+    message: Optional[str] = Field(default=None, description="状态或提示信息")

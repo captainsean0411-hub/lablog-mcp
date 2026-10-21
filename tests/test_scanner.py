@@ -55,3 +55,18 @@ def test_get_detail_success(tmp_path):
 def test_get_detail_not_found():
     detail = get_detail("not_existing.md")
     assert "error" in detail
+
+
+def test_get_timeline_friendly_message():
+    res = get_timeline("nonexistent_path_xyz_123")
+    assert res.total == 0
+    assert res.message is not None
+    assert "不存在" in res.message
+
+def test_get_detail_security_extension(tmp_path):
+    env_file = tmp_path / ".env"
+    env_file.write_text("SECRET_KEY=123456", encoding="utf-8")
+
+    detail = get_detail(str(env_file))
+    assert "error" in detail
+    assert "安全限制" in detail["error"]

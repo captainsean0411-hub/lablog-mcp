@@ -69,3 +69,43 @@ def test_parse_alternative_headers(tmp_path):
     assert "temperature 为 0.2" in entry.delta
     assert "准确率下降 5%" in entry.outcome
     assert entry.decision == "放弃"
+
+
+def test_parse_decision_semantic_negatives(tmp_path):
+    note_content = """# 稳定性测试
+## 结论
+评测未通过，大模型在并发下出现死循环。
+"""
+    note_file = tmp_path / "2026-10-21-fail.md"
+    note_file.write_text(note_content, encoding="utf-8")
+
+    entry = parse_markdown_note(str(note_file))
+    assert entry.decision == "放弃"
+    assert "评测未通过" in entry.rationale
+
+def test_parse_malformed_frontmatter(tmp_path):
+    note_content = """---
+date: 2026-10-20
+topic: invalid: yaml: [unclosed
+---
+# 容错标题
+## 结论
+采用
+"""
+    note_file = tmp_path / "2026-10-21-malformed.md"
+    note_file.write_text(note_content, encoding="utf-8")
+
+    entry = parse_markdown_note(str(note_file))
+    assert entry.topic == "容错标题"
+    assert entry.decision == "采用"
+
+
+def test_parse_non_utf8_encoding(tmp_path):
+    note_file = tmp_path / "2026-10-21-gbk.md"
+    # 写入 GBK 编码的中文字节
+    note_file.write_bytes("# GBK 测试\n## 结论\n采用".encode("gbk"))
+
+    # 应使用 errors='replace' 正常读取而不崩溃
+    entry = parse_markdown_note(str(note_file))
+    assert entry.file_path == str(note_file.as_posix())
+    assert entry.date == "2026-10-21"

@@ -13,6 +13,15 @@ DELTA_KEYWORDS = ["改动", "调整", "变量", "参数", "方案", "change", "d
 OUTCOME_KEYWORDS = ["结果", "评测", "现象", "指标", "表现", "outcome", "result", "metric", "eval"]
 DECISION_KEYWORDS = ["结论", "决策", "采纳", "下一步", "总结", "decision", "conclusion", "summary"]
 
+RE_NEGATIVE = re.compile(
+    r"(放弃|不采用|不采纳|未采纳|未采用|未通过|不通过|不保留|弃用|淘汰|失败|fail|reject|discard|drop|not\s+pass)",
+    re.IGNORECASE,
+)
+RE_POSITIVE = re.compile(
+    r"(采用|采纳|通过|保留|adopt|keep|pass)",
+    re.IGNORECASE,
+)
+
 
 def _extract_date(post_metadata: dict, file_path: Path) -> str:
     """提取日期，依次尝试：Frontmatter -> 文件名正则 -> 文件修改时间."""
@@ -47,7 +56,12 @@ def _extract_topic(post_metadata: dict, content: str, file_path: Path) -> str:
     if title_match:
         raw_title = title_match.group(1).strip()
         # 清除显式日志前缀如 "实验日志："、"实验记录：" 等
-        cleaned = re.sub(r"^(实验日志|实验记录|实验总结|Experiment\s*Log|Experiment\s*Notes)[:：\s]+", "", raw_title, flags=re.IGNORECASE)
+        cleaned = re.sub(
+            r"^(实验日志|实验记录|实验总结|Experiment\s*Log|Experiment\s*Notes)[:：\s]+",
+            "",
+            raw_title,
+            flags=re.IGNORECASE,
+        )
         if cleaned:
             return cleaned
 
@@ -58,21 +72,30 @@ def _extract_topic(post_metadata: dict, content: str, file_path: Path) -> str:
 
 
 def _split_into_sections(content: str) -> dict[str, str]:
-    """将 Markdown 内容按二级/三级标题拆分为 {标题名: 内容}."""
+    """将 Markdown 内容按二级/三级标题拆分为 {标题名: 内容}，自动忽略代码块内的注释."""
     sections = {}
     lines = content.splitlines()
     current_header = "__intro__"
     current_lines = []
+    in_code_block = False
 
     for line in lines:
-        header_match = re.match(r"^#{2,3}\s+(.+)$", line.strip())
-        if header_match:
-            if current_lines:
-                sections[current_header] = "\n".join(current_lines).strip()
-                current_lines = []
-            current_header = header_match.group(1).strip()
-        else:
+        stripped = line.strip()
+        if stripped.startswith("```"):
+            in_code_block = not in_code_block
             current_lines.append(line)
+            continue
+
+        if not in_code_block:
+            header_match = re.match(r"^#{2,3}\s+(.+)$", stripped)
+            if header_match:
+                if current_lines:
+                    sections[current_header] = "\n".join(current_lines).strip()
+                    current_lines = []
+                current_header = header_match.group(1).strip()
+                continue
+
+        current_lines.append(line)
 
     if current_lines:
         sections[current_header] = "\n".join(current_lines).strip()
@@ -94,16 +117,13 @@ def _determine_decision(text: str) -> tuple[str, str]:
     if not text:
         return "待定", ""
 
-    decision = "待定"
-    # 优先检测否定/放弃词
-    if re.search(r"(放弃|不采用|不采纳|弃用|reject|discard|drop)", text, re.IGNORECASE):
-        decision = "放弃"
-    elif re.search(r"(采用|采纳|通过|保留|adopt|keep|pass)", text, re.IGNORECASE):
-        decision = "采用"
+    # 优先检测否定词（避免“未通过”命中“通过”）
+    if RE_NEGATIVE.search(text):
+        return "放弃", text.strip()
+    if RE_POSITIVE.search(text):
+        return "采用", text.strip()
 
-    # rationale 可以是整个段落或剥离决策词后的文字
-    rationale = text.strip()
-    return decision, rationale
+    return "待定", text.strip()
 
 
 def parse_markdown_note(file_path: str, raw_content: Optional[str] = None) -> ExperimentEntry:
@@ -113,9 +133,18 @@ def parse_markdown_note(file_path: str, raw_content: Optional[str] = None) -> Ex
     if raw_content is None:
         raw_content = path.read_text(encoding="utf-8", errors="replace")
 
-    post = frontmatter.loads(raw_content)
-    metadata = post.metadata
-    content = post.content
+    metadata = {}
+    content = raw_content
+
+    # 增强 Frontmatter 解析容错，防止非标准 YAML 导致崩溃
+    try:
+        post = frontmatter.loads(raw_content)
+        if isinstance(post.metadata, dict):
+            metadata = post.metadata
+        content = post.content
+    except Exception:
+        metadata = {}
+        content = raw_content
 
     date_str = _extract_date(metadata, path)
     topic_str = _extract_topic(metadata, content, path)
