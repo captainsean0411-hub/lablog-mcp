@@ -46,8 +46,8 @@ def _extract_topic(post_metadata: dict, content: str, file_path: Path) -> str:
     title_match = re.search(r"^#{1,3}\s+(.+)$", content, re.MULTILINE)
     if title_match:
         raw_title = title_match.group(1).strip()
-        # 清除前缀如 "实验日志："、"实验：" 等
-        cleaned = re.sub(r"^(实验日志|实验记录|实验总结|实验)[:：\s]*", "", raw_title)
+        # 清除显式日志前缀如 "实验日志："、"实验记录：" 等
+        cleaned = re.sub(r"^(实验日志|实验记录|实验总结|Experiment\s*Log|Experiment\s*Notes)[:：\s]+", "", raw_title, flags=re.IGNORECASE)
         if cleaned:
             return cleaned
 
